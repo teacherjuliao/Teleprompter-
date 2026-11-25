@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Sonar Prompter</title>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=Chakra+Petch:wght@600;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: ferramenta de estúdio, direta
+   IDEA: o monitor de um teleprompter de verdade sobre a câmera
+   PICTURE: a sua imagem em tela cheia com o texto rolando por cima
+   COLOUR and TYPE: preto + verde-limão do Sonar, Russo One / Chakra Petch
+   LAYOUT: tela cheia, controles embaixo, roteiro em painel */
+:root{--lime:#C6FF00;--ink:#fff;--bg:#000}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#000;color:#fff;font:16px/1.5 "Chakra Petch",system-ui,sans-serif;overflow:hidden}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+video.mirror{transform:scaleX(-1)}
+#prompt{position:fixed;left:0;right:0;top:0;padding:calc(env(safe-area-inset-top) + 8px) 6% 0;overflow:hidden;pointer-events:none}
+#shade{position:absolute;inset:0;background:linear-gradient(#000d,#0009 70%,#0000)}
+#text{position:relative;font-family:"Russo One",sans-serif;line-height:1.35;white-space:pre-wrap;text-shadow:0 2px 6px #000;will-change:transform}
+#text.flip{transform:scaleX(-1)}
+#mark{position:absolute;left:0;right:0;height:2px;background:var(--lime);opacity:.7}
+#bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;padding:10px 10px calc(env(safe-area-inset-bottom) + 10px);background:linear-gradient(#0000,#000c 40%)}
+button,select{font:700 15px "Chakra Petch",sans-serif;min-height:44px;padding:0 14px;border-radius:12px;border:1.5px solid #fff4;background:#000a;color:#fff}
+button.main{background:var(--lime);color:#000;border-color:var(--lime);min-width:96px}
+button.rec{border-color:#ff3b3b;color:#ff6b6b}
+button.rec.on{background:#ff3b3b;color:#fff}
+.grp{display:flex;align-items:center;gap:6px;background:#000a;border:1.5px solid #fff4;border-radius:12px;padding:0 6px}
+.grp button{border:0;background:none;min-width:36px;padding:0 6px}
+.grp span{font-size:13px;color:#ccc;min-width:46px;text-align:center}
+#timer{position:fixed;top:calc(env(safe-area-inset-top) + 10px);right:12px;font:700 15px "Chakra Petch";background:#ff3b3b;color:#fff;padding:4px 10px;border-radius:8px;display:none}
+#panel{position:fixed;inset:0;background:#000;display:flex;flex-direction:column;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);gap:12px;z-index:5}
+#panel h1{font:400 28px/1.1 "Russo One";margin:0}#panel h1 b{color:var(--lime);font-weight:400}
+#panel p{margin:0;color:#aaa;font-size:14px}
+textarea{flex:1;width:100%;background:#0d0d0d;color:#fff;border:1.5px solid #333;border-radius:12px;padding:14px;font:16px/1.5 system-ui,sans-serif;resize:none}
+textarea:focus,button:focus-visible{outline:2px solid var(--lime);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1}
+#msg{color:#ff8080;font-size:14px;min-height:1em}
+#dl{display:none;position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);background:#000e;border:2px solid var(--lime);border-radius:16px;padding:18px;text-align:center;z-index:6;width:min(90vw,360px)}
+#dl a{display:block;margin-top:12px;background:var(--lime);color:#000;padding:12px;border-radius:12px;font-weight:700;text-decoration:none}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<video id="cam" class="mirror" autoplay playsinline muted></video>
+<div id="prompt"><div id="shade"></div><div id="text"></div><div id="mark"></div></div>
+<div id="timer">● 00:00</div>
+<div id="bar">
+  <button id="play" class="main">▶ Rolar</button>
+  <div class="grp"><button id="sDown" aria-label="mais devagar">−</button><span id="sVal">vel 3</span><button id="sUp" aria-label="mais rápido">+</button></div>
+  <div class="grp"><button id="fDown" aria-label="letra menor">A−</button><span id="fVal">40</span><button id="fUp" aria-label="letra maior">A+</button></div>
+  <button id="back" aria-label="voltar ao início">⟲</button>
+  <button id="recBtn" class="rec">● Gravar</button>
+  <button id="flipCam">🔄</button>
+  <button id="edit">✎ Texto</button>
+</div>
+<div id="dl"><b>Vídeo gravado!</b><p id="dlInfo"></p><a id="dlLink" download="sonar-gravacao.mp4">Salvar vídeo</a><button id="dlClose" style="margin-top:10px;width:100%">Fechar</button></div>
+<div id="panel">
+  <h1>Sonar <b>Prompter</b></h1>
+  <p>Cole o roteiro abaixo. Na tela de gravação: toque no texto para pausar, arraste para ajustar a posição.</p>
+  <textarea id="script" placeholder="Cole aqui o roteiro..."></textarea>
+  <div class="row">
+    <label style="display:flex;align-items:center;gap:8px;font-size:14px"><input type="checkbox" id="landscape"> Gravar na horizontal (vídeo longo)</label>
+  </div>
+  <div id="msg"></div>
+  <div class="row"><button id="start" class="main">Abrir câmera</button></div>
+</div>
+<script>
+{
+const $=id=>document.getElementById(id);
+const cam=$('cam'),txt=$('text'),prompt=$('prompt'),mark=$('mark');
+let speed=3,font=40,pos=0,playing=false,last=0,stream=null,facing='user',rec=null,chunks=[],t0=0,tick=null;
+const store={get(k,d){try{const v=localStorage.getItem('sp_'+k);return v===null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem('sp_'+k,JSON.stringify(v))}catch(e){}}};
+$('script').value=store.get('script','');speed=store.get('speed',3);font=store.get('font',40);
+function layout(){
+  const h=Math.round(innerHeight*(innerWidth>innerHeight?0.55:0.42));
+  prompt.style.height=h+'px';txt.style.fontSize=font+'px';
+  mark.style.top=Math.round(h*0.28)+'px';
+  txt.style.transform=`translateY(${Math.round(h*0.28-pos)}px)`;
+  $('sVal').textContent='vel '+speed;$('fVal').textContent=font;
+}
+function loop(ts){
+  if(playing){if(last){pos+= (ts-last)/1000*speed*14*(font/40);const max=txt.scrollHeight;if(pos>max){pos=max;setPlay(false)}}last=ts;layout()}
+  requestAnimationFrame(loop);
+}
+function setPlay(v){playing=v;last=0;$('play').textContent=v?'❚❚ Pausar':'▶ Rolar'}
+async function openCam(){
+  $('msg').textContent='';
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('msg').textContent='Este navegador não libera a câmera aqui. Abra o link no Safari ou no Chrome.';return false}
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    const land=$('landscape').checked;
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:land?1920:1080},height:{ideal:land?1080:1920},frameRate:{ideal:30}},audio:true});
+    cam.srcObject=stream;cam.classList.toggle('mirror',facing==='user');return true;
+  }catch(e){$('msg').textContent='Não consegui abrir a câmera ('+e.name+'). Permita o acesso à câmera e ao microfone e tente de novo.';return false}
+}
+$('start').onclick=async()=>{
+  const s=$('script').value.trim();store.set('script',$('script').value);
+  txt.textContent=s||'Cole o seu roteiro em "✎ Texto".';pos=0;
+  if(await openCam()){$('panel').style.display='none';layout()}
+};
+$('edit').onclick=()=>{setPlay(false);$('panel').style.display='flex'};
+$('play').onclick=()=>setPlay(!playing);
+prompt.style.pointerEvents='auto';
+let dragY=null,moved=false;
+prompt.addEventListener('pointerdown',e=>{dragY=e.clientY;moved=false});
+prompt.addEventListener('pointermove',e=>{if(dragY===null)return;const d=e.clientY-dragY;if(Math.abs(d)>4)moved=true;pos=Math.max(0,pos-d);dragY=e.clientY;layout()});
+prompt.addEventListener('pointerup',()=>{if(!moved)setPlay(!playing);dragY=null});
+$('sUp').onclick=()=>{speed=Math.min(10,speed+1);store.set('speed',speed);layout()};
+$('sDown').onclick=()=>{speed=Math.max(1,speed-1);store.set('speed',speed);layout()};
+$('fUp').onclick=()=>{font=Math.min(80,font+4);store.set('font',font);layout()};
+$('fDown').onclick=()=>{font=Math.max(20,font-4);store.set('font',font);layout()};
+$('back').onclick=()=>{pos=0;setPlay(false);layout()};
+$('flipCam').onclick=async()=>{if(rec)return;facing=facing==='user'?'environment':'user';await openCam()};
+function fmt(s){return String(Math.floor(s/60)).padStart(2,'0')+':'+String(Math.floor(s%60)).padStart(2,'0')}
+$('recBtn').onclick=()=>{
+  if(rec){rec.stop();return}
+  if(!stream||typeof MediaRecorder==='undefined'){$('msg').textContent='Gravação não suportada neste navegador.';return}
+  const types=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9,opus','video/webm'];
+  const mt=types.find(t=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))||'';
+  chunks=[];rec=new MediaRecorder(stream,mt?{mimeType:mt,videoBitsPerSecond:8000000}:undefined);
+  rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  rec.onstop=()=>{
+    const type=rec.mimeType||'video/mp4';const blob=new Blob(chunks,{type});rec=null;
+    clearInterval(tick);$('timer').style.display='none';$('recBtn').classList.remove('on');$('recBtn').textContent='● Gravar';
+    const ext=type.includes('webm')?'webm':'mp4';
+    $('dlLink').href=URL.createObjectURL(blob);$('dlLink').download='sonar-gravacao-'+Date.now()+'.'+ext;
+    $('dlInfo').textContent=(blob.size/1048576).toFixed(0)+' MB · '+fmt((Date.now()-t0)/1000);
+    $('dl').style.display='block';setPlay(false);
+  };
+  rec.start(1000);t0=Date.now();$('recBtn').classList.add('on');$('recBtn').textContent='■ Parar';
+  $('timer').style.display='block';tick=setInterval(()=>{$('timer').textContent='● '+fmt((Date.now()-t0)/1000)},500);
+  pos=0;layout();setTimeout(()=>setPlay(true),1500);
+};
+$('dlClose').onclick=()=>{$('dl').style.display='none'};
+addEventListener('resize',layout);
+layout();requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
